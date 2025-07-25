@@ -1,0 +1,3 @@
+[console_scripts]
+latest = latest.__main__:main
+

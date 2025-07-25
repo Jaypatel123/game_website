@@ -1,0 +1,35 @@
+Step-by-Step: Create React + TypeScript App (Without Vite)
+
+Step 1: Create React App with TypeScript
+npx create-react-app@latest fun-games-platform --template typescript
+cd fun-games-platform
+npm start
+
+Step: Install Tailwind CSS
+npm install -D tailwindcss@3 postcss autoprefixer
+npx tailwindcss init -p
+
+Step: Update tailwind.config.js:
+module.exports = {
+  content: ["./src/**/*.{js,ts,jsx,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
+}
+
+Step: Update src/index.css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+Step: Ensure index.tsx imports it
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+root.render(<App />);
+
+Step: Install React Router
+npm install react-router-dom
+npm install --save-dev @types/react-router-dom
