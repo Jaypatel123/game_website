@@ -16,6 +16,8 @@ const ChessGame: React.FC = () => {
   const [game, setGame] = useState(new Chess());
   const [gamePosition, setGamePosition] = useState(game.fen());
   const [gameStatus, setGameStatus] = useState('');
+  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [playerColor, setPlayerColor] = useState<'white' | 'black' | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<'white' | 'black'>('white');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white'); // 'white' or 'black'
   const [searchParams] = useSearchParams();
@@ -24,6 +26,7 @@ const ChessGame: React.FC = () => {
   const [messages, setMessages] = useState<string[]>([]); // To display game messages/logs
   const [showLobby, setShowLobby] = useState(!roomId);
   const [inputRoomId, setInputRoomId] = useState('');
+  const isPlayerTurn = playerColor && game.turn() === (playerColor === 'white' ? 'w' : 'b');
 
   // This function ensures game state updates are immutable and handled correctly
   const updateGame = useCallback((modifyFn: (gameInstance: Chess) => void) => {
@@ -40,12 +43,24 @@ const ChessGame: React.FC = () => {
       setMessages(prev => [...prev, 'No room ID found. Please create or join a room from the Lobby.']);
       return;
     }
-
+    
+    socket.on('playerInfo', ({ playerId, color }: { playerId: string; color: 'white' | 'black' }) => {
+      setPlayerId(playerId);
+      setPlayerColor(color);
+      setBoardOrientation(color);
+      setMessages(prev => [...prev, `You are connected as ${playerId}, playing as ${color}.`]);
+    });
     // Attempt to join the game room on the server
     socket.emit('joinGameRoom', roomId);
     setMessages(prev => [...prev, `Attempting to join Chess room: ${roomId}`]);
 
     // --- Socket Event Listeners ---
+
+    // Listen for when players join the room
+    socket.on('playerJoined', (playerCount: number) => {
+      setMessages(prev => [...prev, `Player joined! Total players: ${playerCount}`]);
+      // Set board orientation based on join order (first player is white, second is black)
+    });
 
     // Listen for updated game state from the server (opponent's move)
     socket.on('gameStateUpdate', (fen: string) => {
@@ -55,23 +70,10 @@ const ChessGame: React.FC = () => {
       updateGameStatus(new Chess(fen)); // Update status based on new FEN
     });
 
-    // Listen for when players join the room
-    socket.on('playerJoined', (playerCount: number) => {
-      setMessages(prev => [...prev, `Player joined! Total players: ${playerCount}`]);
-      // Set board orientation based on join order (first player is white, second is black)
-      if (playerCount === 1) {
-        setBoardOrientation('white');
-        setMessages(prev => [...prev, 'You are White. Waiting for opponent...']);
-      } else if (playerCount === 2) {
-        setBoardOrientation('black');
-        setMessages(prev => [...prev, 'You are Black. Game starting!']);
-      }
-    });
-
     // Handle room not found errors
     socket.on('roomNotFound', () => {
       setMessages(prev => [...prev, 'Room not found or full. Redirecting to Lobby.']);
-      setTimeout(() => navigate('/lobby'), 3000); // Redirect after a short delay
+      setTimeout(() => navigate('/chess'), 3000); // Redirect after a short delay
     });
 
     socket.on('roomError', (error: string) => {
@@ -81,7 +83,7 @@ const ChessGame: React.FC = () => {
     socket.on('chatMessage', (msg: string) => { // Example: If you add a chat
       setMessages(prev => [...prev, msg]);
     });
-
+    
     // Clean up socket listeners when component unmounts
     return () => {
       socket.off('gameStateUpdate');
@@ -123,7 +125,7 @@ const ChessGame: React.FC = () => {
       return false;
     }
 
-    let move: Move | null = null;
+    // let move: Move | null = null;
     const gameCopy = new Chess(game.fen()); // Work with a copy for local validation
 
     try {
@@ -188,7 +190,10 @@ const ChessGame: React.FC = () => {
 
       <div className="flex flex-col lg:flex-row gap-8 items-start">
         <div className="flex-1">
-          <div className="bg-white rounded-lg shadow-md p-4">
+          <div className={`bg-white rounded-lg shadow-md p-4 transition-shadow duration-300 ${
+            isPlayerTurn ? 'ring-4 ring-green-400' : ''
+            }`}
+          >
             <Chessboard
               options={{
                 position: gamePosition,
@@ -196,11 +201,12 @@ const ChessGame: React.FC = () => {
                 boardOrientation: boardOrientation, // Set orientation based on player
                 allowDragging: !game.isGameOver()
               }}
-              // arePiecesDraggable= {
-              //     !game.isGameOver() && // Not draggable if game is over
-              //     game.turn() === (boardOrientation === 'white' ? 'w' : 'b') // Only draggable on your turn
-              // }
             />
+            {isPlayerTurn && (
+              <div className="text-center text-green-600 font-semibold mt-4">
+                Your Turn!
+              </div>
+            )}
           </div>
         </div>
 
@@ -232,6 +238,11 @@ const ChessGame: React.FC = () => {
               </button>
             </div>
           </div>
+          {playerId && playerColor && (
+            <div className="text-sm text-center text-gray-500 mt-2">
+              Player ID: <span className="font-mono">{playerId}</span> | Color: <span className="capitalize">{playerColor}</span>
+            </div>
+          )}
 
           <div className="bg-white rounded-lg shadow-md p-6 mt-6">
             <h3 className="text-xl font-semibold mb-4">Game Log / Messages</h3>

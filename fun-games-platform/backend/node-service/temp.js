@@ -1,81 +1,75 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import cors from 'cors';
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["*", "http://localhost:3000"], // allow frontend dev server (localhost:3000)
-    methods: ['GET', 'POST']
-  }
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+  },
 });
 
-// Room data
-const rooms = new Map(); // roomId => [socketId1, socketId2]
+interface RoomData {
+  players: string[]; // socket IDs
+}
+
+const rooms: Record<string, RoomData> = {};
 
 io.on('connection', (socket) => {
-  console.log(`🟢 New socket connected: ${socket.id}`);
+  console.log(`Socket connected: ${socket.id}`);
 
-  // Handle join room
-  socket.on('joinGameRoom', (roomId) => {
-    const players = rooms.get(roomId) || [];
+  socket.on('joinGameRoom', (roomId: string) => {
+    if (!rooms[roomId]) {
+      rooms[roomId] = { players: [] };
+    }
 
-    if (players.length >= 2) {
-      socket.emit('roomNotFound');
+    const room = rooms[roomId];
+
+    if (room.players.length >= 2) {
+      socket.emit('roomNotFound'); // room full
       return;
     }
 
+    room.players.push(socket.id);
     socket.join(roomId);
-    rooms.set(roomId, [...players, socket.id]);
-    io.to(roomId).emit('playerJoined', rooms.get(roomId).length);
 
-    console.log(`📥 ${socket.id} joined room ${roomId}`);
+    const color = room.players.length === 1 ? 'white' : 'black';
+
+    socket.emit('playerInfo', {
+      playerId: socket.id,
+      color,
+    });
+
+    io.to(roomId).emit('playerJoined', room.players.length);
   });
 
-  // Handle move made
-  socket.on('makeMove', ({ room, fen, move }) => {
+  socket.on('makeMove', ({ room, fen }) => {
     socket.to(room).emit('gameStateUpdate', fen);
   });
 
-  // Handle leave room
-  socket.on('leaveGameRoom', (roomId) => {
-    const players = rooms.get(roomId) || [];
-    const updatedPlayers = players.filter((id) => id !== socket.id);
-
-    if (updatedPlayers.length === 0) {
-      rooms.delete(roomId);
-    } else {
-      rooms.set(roomId, updatedPlayers);
-    }
-
+  socket.on('leaveGameRoom', (roomId: string) => {
     socket.leave(roomId);
-    console.log(`🚪 ${socket.id} left room ${roomId}`);
-  });
-
-  // On disconnect
-  socket.on('disconnect', () => {
-    for (const [roomId, players] of rooms.entries()) {
-      if (players.includes(socket.id)) {
-        const updatedPlayers = players.filter((id) => id !== socket.id);
-        if (updatedPlayers.length === 0) {
-          rooms.delete(roomId);
-        } else {
-          rooms.set(roomId, updatedPlayers);
-          io.to(roomId).emit('playerJoined', updatedPlayers.length);
-        }
-        break;
+    if (rooms[roomId]) {
+      rooms[roomId].players = rooms[roomId].players.filter(id => id !== socket.id);
+      if (rooms[roomId].players.length === 0) {
+        delete rooms[roomId]; // cleanup
       }
     }
-    console.log(`🔴 Socket disconnected: ${socket.id}`);
+  });
+
+  socket.on('disconnect', () => {
+    for (const roomId in rooms) {
+      rooms[roomId].players = rooms[roomId].players.filter(id => id !== socket.id);
+      if (rooms[roomId].players.length === 0) {
+        delete rooms[roomId];
+      }
+    }
+    console.log(`Socket disconnected: ${socket.id}`);
   });
 });
 
-// Basic route
-app.get('/', (req, res) => {
-  res.send('Chess server running...');
+server.listen(4000, () => {
+  console.log('Server running on http://localhost:4000');
 });
-
-const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

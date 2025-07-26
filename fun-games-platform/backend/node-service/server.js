@@ -28,6 +28,13 @@ io.on('connection', (socket) => {
     }
 
     socket.join(roomId);
+    const color = players.length === 1 ? 'white' : 'black';
+
+    socket.emit('playerInfo', {
+      playerId: socket.id,
+      color,
+    });
+
     rooms.set(roomId, [...players, socket.id]);
     io.to(roomId).emit('playerJoined', rooms.get(roomId).length);
 
