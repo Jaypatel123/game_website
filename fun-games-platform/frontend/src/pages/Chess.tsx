@@ -266,10 +266,9 @@ const ChessGame: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto py-8">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">
-          Multiplayer Chess {roomId && `(Room: ${roomId})`}
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">
+          Multiplayer Chess <pre>{roomId && `room:${roomId}`}</pre>
         </h1>
-        <p className="text-gray-600">Click and drag pieces to make your move</p>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8 items-start">
