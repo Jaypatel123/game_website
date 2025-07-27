@@ -1,16 +1,9 @@
-// const Chess: React.FC = () => <div className="p-6 text-center">♟ Chess Game Coming Soon!</div>;
-// export default Chess;
 import React, { useState, useEffect, useCallback } from 'react';
-import { Chessboard, PieceDropHandlerArgs } from 'react-chessboard';
+import { Chessboard, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard';
 import { Chess, Square } from 'chess.js';
 import { socket } from '../services/socket'; // Assuming socket.ts is in the same directory or a services folder
 import { useSearchParams, useNavigate } from 'react-router-dom'; // For room management
 
-interface Move {
-  from: Square;
-  to: Square;
-  promotion?: 'q' | 'r' | 'b' | 'n'; // promotion type is optional
-}
 
 const ChessGame: React.FC = () => {
   const [game, setGame] = useState(new Chess());
@@ -19,6 +12,7 @@ const ChessGame: React.FC = () => {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [playerColor, setPlayerColor] = useState<'white' | 'black' | null>(null);
   const [currentPlayer, setCurrentPlayer] = useState<'white' | 'black'>('white');
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white'); // 'white' or 'black'
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -27,6 +21,8 @@ const ChessGame: React.FC = () => {
   const [showLobby, setShowLobby] = useState(!roomId);
   const [inputRoomId, setInputRoomId] = useState('');
   const isPlayerTurn = playerColor && game.turn() === (playerColor === 'white' ? 'w' : 'b');
+  const [highlightedSquares, setHighlightedSquares] = useState<Square[]>([]);
+  const [checkSquare, setCheckSquare] = useState<string | null>(null);
 
   // This function ensures game state updates are immutable and handled correctly
   const updateGame = useCallback((modifyFn: (gameInstance: Chess) => void) => {
@@ -36,7 +32,25 @@ const ChessGame: React.FC = () => {
       return newGame;
     });
   }, []);
+  const updateGameStatus = (currentGame: Chess) => {
+    if (currentGame.inCheck()) {
+      const square = getCheckedKingSquare(currentGame);
+      setCheckSquare(square); // trigger board highlight
+      setGameStatus('King is in check!');
+    } else {
+      setCheckSquare(null);
+    }
 
+    if (currentGame.isCheckmate()) {
+      setGameStatus(`Checkmate! ${currentGame.turn() === 'w' ? 'Black' : 'White'} wins!`);
+    } else if (currentGame.isDraw()) {
+      setGameStatus('Draw!');
+    } else if (currentGame.isCheck()) {
+      setGameStatus(`${currentGame.turn() === 'w' ? 'White' : 'Black'} is in check`);
+    } else {
+      setGameStatus(`${currentGame.turn() === 'w' ? 'White' : 'Black'} to move`);
+    }
+  };
   // Effect for Socket.IO event listeners
   useEffect(() => {
     if (!roomId) {
@@ -49,6 +63,9 @@ const ChessGame: React.FC = () => {
       setPlayerColor(color);
       setBoardOrientation(color);
       setMessages(prev => [...prev, `You are connected as ${playerId}, playing as ${color}.`]);
+
+      localStorage.setItem('chess-playerId', playerId);
+      localStorage.setItem('chess-playerColor', color);
     });
     // Attempt to join the game room on the server
     socket.emit('joinGameRoom', roomId);
@@ -72,6 +89,8 @@ const ChessGame: React.FC = () => {
 
     // Handle room not found errors
     socket.on('roomNotFound', () => {
+      localStorage.removeItem('chess-playerId');
+      localStorage.removeItem('chess-playerColor');
       setMessages(prev => [...prev, 'Room not found or full. Redirecting to Lobby.']);
       setTimeout(() => navigate('/chess'), 3000); // Redirect after a short delay
     });
@@ -102,19 +121,22 @@ const ChessGame: React.FC = () => {
     updateGameStatus(game);
     setCurrentPlayer(game.turn() === 'w' ? 'white' : 'black');
   }, [game]); // Depend on the 'game' object
+  
+  const getCheckedKingSquare = (game: Chess): string | null => {
+    if (!game.inCheck()) return null;
 
-  const updateGameStatus = (currentGame: Chess) => {
-    if (currentGame.isCheckmate()) {
-      setGameStatus(`Checkmate! ${currentGame.turn() === 'w' ? 'Black' : 'White'} wins!`);
-    } else if (currentGame.isDraw()) {
-      setGameStatus('Draw!');
-    } else if (currentGame.isCheck()) {
-      setGameStatus(`${currentGame.turn() === 'w' ? 'White' : 'Black'} is in check`);
-    } else {
-      setGameStatus(`${currentGame.turn() === 'w' ? 'White' : 'Black'} to move`);
+    const kingMoves = game.moves({ verbose: true }).filter(move => move.piece === 'k');
+
+    // The king is in check and has legal moves — pick its from-square
+    if (kingMoves.length > 0) {
+      return kingMoves[0].from; // this is the king's square
     }
-  };
 
+    // Fallback: No king moves? Game might be in checkmate. Try this trick:
+    const allMoves = game.moves({ verbose: true });
+    const kingFrom = allMoves.find(m => m.piece === 'k')?.from;
+    return kingFrom || null;
+  };
   const onDrop = ({ sourceSquare, targetSquare, piece }: PieceDropHandlerArgs) => {
     if (game.isGameOver()) return false; // Prevent moves if game is over
 
@@ -124,7 +146,6 @@ const ChessGame: React.FC = () => {
       setMessages(prev => [...prev, "It's not your turn!"]);
       return false;
     }
-
     // let move: Move | null = null;
     const gameCopy = new Chess(game.fen()); // Work with a copy for local validation
 
@@ -164,6 +185,69 @@ const ChessGame: React.FC = () => {
     return false;
   };
 
+  const handleSquareClick = ({ square }: SquareHandlerArgs) => {
+    if (!playerColor || game.isGameOver()) return;
+  
+    const piece = game.get(square as Square);
+    const isMyTurn = game.turn() === (playerColor === 'white' ? 'w' : 'b');
+  
+    // If a piece is selected and the clicked square is in highlighted destinations
+    if (selectedSquare && highlightedSquares.includes(square as Square)) {
+      const gameCopy = new Chess(game.fen());
+      const move = gameCopy.move({
+        from: selectedSquare,
+        to: square as Square,
+        promotion: 'q',
+      });
+  
+      if (move) {
+        setGame(gameCopy);
+        setGamePosition(gameCopy.fen());
+        updateGameStatus(gameCopy);
+        setHighlightedSquares([]);
+        setSelectedSquare(null);
+  
+        if (roomId) {
+          socket.emit('makeMove', {
+            room: roomId,
+            fen: gameCopy.fen(),
+            move,
+          });
+        }
+      }
+      return;
+    }
+  
+    // If clicking your own piece on your turn
+    if (piece && piece.color === (playerColor === 'white' ? 'w' : 'b') && isMyTurn) {
+      const moves = game.moves({ square: square as Square, verbose: true });
+      const destinations = moves.map((m) => m.to as Square);
+      setSelectedSquare(square as Square);
+      setHighlightedSquares(destinations);
+    } else {
+      // Invalid click - clear state
+      setSelectedSquare(null);
+      setHighlightedSquares([]);
+    }
+  }
+
+  const getCustomSquareStyles = () => {
+    const styles: { [square: string]: React.CSSProperties } = {};
+    highlightedSquares.forEach((sq) => {
+      styles[sq] = {
+        background: 'radial-gradient(circle, rgba(2, 60, 143, 0.9) 8%, transparent 0%)',
+        borderRadius: '100%'
+      };
+    });
+    if (checkSquare) {
+      styles[checkSquare] = {
+        backgroundColor: 'rgba(255, 0, 0, 0.5)',
+        boxShadow: '0 0 10px red inset'
+      };
+    }
+    return styles;
+  };
+
   const resetGame = () => {
     // For online multiplayer, resetting the game should ideally be a server-side action.
     // For now, if no room, reset locally. If in a room, you'd emit 'resetGame' to the server.
@@ -199,8 +283,11 @@ const ChessGame: React.FC = () => {
                 position: gamePosition,
                 onPieceDrop: onDrop,
                 boardOrientation: boardOrientation, // Set orientation based on player
-                allowDragging: !game.isGameOver()
+                onSquareClick: handleSquareClick,
+                squareStyles: getCustomSquareStyles(),
+                allowDragging: false
               }}
+              // allowDragging: !game.isGameOver(),
             />
             {isPlayerTurn && (
               <div className="text-center text-green-600 font-semibold mt-4">
