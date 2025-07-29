@@ -33,3 +33,10 @@ root.render(<App />);
 Step: Install React Router
 npm install react-router-dom
 npm install --save-dev @types/react-router-dom
+
+Redis cmds
+brew install redis
+brew services start redis
+          OR
+Install Redis client in backend:
+npm install redis

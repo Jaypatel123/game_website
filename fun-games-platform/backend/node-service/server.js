@@ -2,24 +2,31 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import { createClient } from 'redis';
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // allow frontend dev server (localhost:3000)
+    origin: '*',
     methods: ['GET', 'POST']
   }
 });
 
-// Room data
+// --------------------
+// ✅ Redis setup
+// --------------------
+const redisClient = createClient();
+redisClient.connect().catch(console.error);
+
+// Room tracking
 const rooms = new Map(); // roomId => [socketId1, socketId2]
 
 io.on('connection', (socket) => {
   console.log(`🟢 New socket connected: ${socket.id}`);
 
-  // Handle join room
-  socket.on('joinGameRoom', (roomId) => {
+  // 🎯 Join room
+  socket.on('joinGameRoom', async (roomId) => {
     const players = rooms.get(roomId) || [];
 
     if (players.length >= 2) {
@@ -39,14 +46,24 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('playerJoined', rooms.get(roomId).length);
 
     console.log(`📥 ${socket.id} joined room ${roomId}`);
+
+    // ✅ Send latest FEN if available
+    const savedFen = await redisClient.get(`fen:${roomId}`);
+    if (savedFen) {
+      socket.emit('gameStateUpdate', savedFen);
+      console.log(`♻️ Restored FEN for room ${roomId}:`, savedFen);
+    }
   });
 
-  // Handle move made
-  socket.on('makeMove', ({ room, fen, move }) => {
+  // 🎯 Move made
+  socket.on('makeMove', async ({ room, fen }) => {
+    // ✅ Store FEN in Redis
+    await redisClient.set(`fen:${room}`, fen);
     socket.to(room).emit('gameStateUpdate', fen);
+    console.log(`📤 Move stored for room ${room}:`, fen);
   });
 
-  // Handle leave room
+  // 🎯 Leave room
   socket.on('leaveGameRoom', (roomId) => {
     const players = rooms.get(roomId) || [];
     const updatedPlayers = players.filter((id) => id !== socket.id);
@@ -61,7 +78,7 @@ io.on('connection', (socket) => {
     console.log(`🚪 ${socket.id} left room ${roomId}`);
   });
 
-  // On disconnect
+  // 🎯 Disconnect
   socket.on('disconnect', () => {
     for (const [roomId, players] of rooms.entries()) {
       if (players.includes(socket.id)) {
@@ -81,7 +98,7 @@ io.on('connection', (socket) => {
 
 // Basic route
 app.get('/', (req, res) => {
-  res.send('Chess server running...');
+  res.send('♟ Chess server running with Redis...');
 });
 
 const PORT = process.env.PORT || 4000;
