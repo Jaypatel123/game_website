@@ -2,9 +2,9 @@ import GameCard from '../components/GameCard';
 
 const Home: React.FC = () => {
   const games = [
-    { title: 'Chess', path: '/chess', image: '/chess.png' },
-    { title: 'Ludo', path: '/ludo', image: '/ludo.png' },
-    { title: 'Angry Birds', path: '/angrybirds', image: '/angry.png' },
+    { title: 'Chess', path: '/chess', image: 'static/chess.jpg' },
+    { title: 'Ludo', path: '/ludo', image: 'static/ludo.webp' },
+    { title: 'Angry Birds', path: '/angrybirds', image: 'static/angry.png' },
   ];
 
   return (
