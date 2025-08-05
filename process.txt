@@ -40,3 +40,6 @@ brew services start redis
           OR
 Install Redis client in backend:
 npm install redis
+
+
+https://www.linkedin.com/jobs/search-results/?distance=25&f_TPR=r86400&geoId=103644278&keywords=software%20developer&origin=SEMANTIC_SEARCH_HISTORY&refId=83vOOlUAaEv42aQRXIW%2FBQ%3D%3D&trackingId=tpfmAA%2FZBn4AwK5gtK1GpA%3D%3D
