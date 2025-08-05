@@ -138,52 +138,51 @@ const ChessGame: React.FC = () => {
     return kingFrom || null;
   };
   const onDrop = ({ sourceSquare, targetSquare, piece }: PieceDropHandlerArgs) => {
-    if (game.isGameOver()) return false; // Prevent moves if game is over
+    if (game.isGameOver()) return false;
 
-    // Ensure it's the player's turn to move their color
     const turnColor = game.turn() === 'w' ? 'white' : 'black';
     if (turnColor !== boardOrientation) {
       setMessages(prev => [...prev, "It's not your turn!"]);
       return false;
     }
-    // let move: Move | null = null;
-    const gameCopy = new Chess(game.fen()); // Work with a copy for local validation
 
-    try {
-      let move = gameCopy.move({
-        from: sourceSquare as Square,
-        to: targetSquare as Square,
-        promotion: 'q' // Always promote to queen for simplicity
-      })
-      
-      // let move: Move;
+    const gameCopy = new Chess(game.fen());
+    const move = gameCopy.move({
+      from: sourceSquare as Square,
+      to: targetSquare as Square,
+      promotion: 'q',
+    });
 
-      if (move) {
-        // Local state update immediately for smooth UI, but the server will be the source of truth.
-        // If the server rejects the move, the 'gameStateUpdate' from server will correct it.
-        setGame(gameCopy);
-        setGamePosition(gameCopy.fen());
-        setCurrentPlayer(gameCopy.turn() === 'w' ? 'white' : 'black');
-        updateGameStatus(gameCopy);
+    if (!move) return false;
 
-        // --- Send move to server ---
-        if (roomId) {
-          socket.emit('makeMove', { room: roomId, fen: gameCopy.fen(), move: move });
-          setMessages(prev => [...prev, `You moved: ${move.san || move.from + move.to}`]);
-          return true;
-        } else {
-          setMessages(prev => [...prev, 'No active room to send move.']);
-          return false;
+    setGame(gameCopy);
+    setGamePosition(gameCopy.fen());
+    updateGameStatus(gameCopy);
+    setCurrentPlayer(gameCopy.turn() === 'w' ? 'white' : 'black');
+
+    if (roomId) {
+      socket.emit('makeMove', { room: roomId, fen: gameCopy.fen(), move });
+      setMessages(prev => [...prev, `You moved: ${move.san}`]);
+    } else {
+      setMessages(prev => [...prev, `You moved: ${move.san}`]);
+      // 🎯 Make computer move (randomly)
+      setTimeout(() => {
+        const compGame = new Chess(gameCopy.fen());
+        const moves = compGame.moves();
+        if (moves.length > 0) {
+          const randomMove = moves[Math.floor(Math.random() * moves.length)];
+          compGame.move(randomMove);
+          setGame(compGame);
+          setGamePosition(compGame.fen());
+          updateGameStatus(compGame);
+          setMessages(prev => [...prev, `Computer moved: ${randomMove}`]);
         }
-      }
-    } 
-    catch (error) {
-      const err = error as Error;
-      setMessages(prev => [...prev, `Invalid move: ${err.message || 'Unknown error'}`]);
-      return false;
+      }, 500);
     }
-    return false;
+
+    return true;
   };
+
 
   const handleSquareClick = ({ square }: SquareHandlerArgs) => {
     if (!playerColor || game.isGameOver()) return;
@@ -343,24 +342,38 @@ const ChessGame: React.FC = () => {
       {showLobby && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold mb-4 text-center">Join or Create a Chess Room</h2>
+            <h2 className="text-xl font-bold mb-4 text-center">Choose Game Mode</h2>
+
+            {/* Play with Computer */}
+            <button
+              onClick={() => {
+                setShowLobby(false);
+                setPlayerColor('white'); // Player always white against computer
+                setBoardOrientation('white');
+                setMessages(prev => [...prev, 'Playing against computer (local mode).']);
+              }}
+              className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 transition mb-4"
+            >
+              Play with Computer
+            </button>
+
+            {/* OR Join/Create Room */}
             <input
               type="text"
-              placeholder="Enter room name..."
+              placeholder="Enter room name or leave blank to auto-generate..."
               value={inputRoomId}
               onChange={(e) => setInputRoomId(e.target.value)}
-              className="w-full border px-3 py-2 rounded mb-4"
+              className="w-full border px-3 py-2 rounded mb-3"
             />
             <button
               onClick={() => {
-                if (inputRoomId.trim()) {
-                  navigate(`/chess?room=${inputRoomId.trim()}`);
-                  setShowLobby(false);
-                }
+                const roomToJoin = inputRoomId.trim() || Math.floor(1000 + Math.random() * 9000).toString();
+                navigate(`/chess?room=${roomToJoin}`);
+                setShowLobby(false);
               }}
               className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition"
             >
-              Enter Room
+              Join/Create Room
             </button>
           </div>
         </div>
