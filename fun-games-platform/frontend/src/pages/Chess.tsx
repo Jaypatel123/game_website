@@ -3,6 +3,8 @@ import { Chessboard, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chess
 import { Chess, Square } from 'chess.js';
 import { socket } from '../services/socket'; // Assuming socket.ts is in the same directory or a services folder
 import { useSearchParams, useNavigate } from 'react-router-dom'; // For room management
+import { initEngine, setPosition, getBestMove } from '../engine/stockFishEngine';
+
 
 
 const ChessGame: React.FC = () => {
@@ -23,6 +25,8 @@ const ChessGame: React.FC = () => {
   const isPlayerTurn = playerColor && game.turn() === (playerColor === 'white' ? 'w' : 'b');
   const [highlightedSquares, setHighlightedSquares] = useState<Square[]>([]);
   const [checkSquare, setCheckSquare] = useState<string | null>(null);
+  const isVsComputer = searchParams.get('vs') === 'computer';
+
 
   // This function ensures game state updates are immutable and handled correctly
   const updateGame = useCallback((modifyFn: (gameInstance: Chess) => void) => {
@@ -51,6 +55,11 @@ const ChessGame: React.FC = () => {
       setGameStatus(`${currentGame.turn() === 'w' ? 'White' : 'Black'} to move`);
     }
   };
+  useEffect(() => {
+    if (isVsComputer) {
+      initEngine();
+    }
+  }, [isVsComputer]);
   // Effect for Socket.IO event listeners
   useEffect(() => {
     if (!roomId) {
@@ -147,12 +156,30 @@ const ChessGame: React.FC = () => {
     }
 
     const gameCopy = new Chess(game.fen());
+    
     const move = gameCopy.move({
       from: sourceSquare as Square,
       to: targetSquare as Square,
       promotion: 'q',
     });
+    if (isVsComputer) {
+      const playerTurn = gameCopy.turn();
+      setPosition(gameCopy.fen());
 
+      getBestMove(10, (move) => {
+        const from = move.substring(0, 2);
+        const to = move.substring(2, 4);
+        const computerGame = new Chess(gameCopy.fen());
+        const moveResult = computerGame.move({ from, to, promotion: 'q' });
+
+        if (moveResult) {
+          setGame(computerGame);
+          setGamePosition(computerGame.fen());
+          updateGameStatus(computerGame);
+          setMessages(prev => [...prev, `Computer moved: ${move}`]);
+        }
+      });
+    }
     if (!move) return false;
 
     setGame(gameCopy);
@@ -347,14 +374,16 @@ const ChessGame: React.FC = () => {
             {/* Play with Computer */}
             <button
               onClick={() => {
-                setShowLobby(false);
+                const randomId = `cpu-${Math.floor(1000 + Math.random() * 9000)}`;
                 setPlayerColor('white'); // Player always white against computer
+                navigate(`/chess?room=${randomId}&vs=computer`);
                 setBoardOrientation('white');
+                setShowLobby(false);
                 setMessages(prev => [...prev, 'Playing against computer (local mode).']);
               }}
-              className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 transition mb-4"
+              className="w-full bg-green-600 text-white py-2 mt-2 rounded hover:bg-green-700 transition"
             >
-              Play with Computer
+              Play vs Computer
             </button>
 
             {/* OR Join/Create Room */}
