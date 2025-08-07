@@ -56,10 +56,17 @@ const ChessGame: React.FC = () => {
     }
   };
   useEffect(() => {
-    if (isVsComputer) {
-      initEngine();
-    }
-  }, [isVsComputer]);
+  if (isVsComputer) {
+    initEngine()
+      .then(() => {
+        setMessages(prev => [...prev, 'Chess engine initialized successfully']);
+      })
+      .catch((error) => {
+        console.error('Failed to initialize engine:', error);
+        setMessages(prev => [...prev, 'Failed to initialize chess engine, using random moves']);
+      });
+  }
+}, [isVsComputer]);
   // Effect for Socket.IO event listeners
   useEffect(() => {
     if (!roomId) {
@@ -156,32 +163,16 @@ const ChessGame: React.FC = () => {
     }
 
     const gameCopy = new Chess(game.fen());
-    
+
     const move = gameCopy.move({
       from: sourceSquare as Square,
       to: targetSquare as Square,
       promotion: 'q',
     });
-    if (isVsComputer) {
-      const playerTurn = gameCopy.turn();
-      setPosition(gameCopy.fen());
 
-      getBestMove(10, (move) => {
-        const from = move.substring(0, 2);
-        const to = move.substring(2, 4);
-        const computerGame = new Chess(gameCopy.fen());
-        const moveResult = computerGame.move({ from, to, promotion: 'q' });
-
-        if (moveResult) {
-          setGame(computerGame);
-          setGamePosition(computerGame.fen());
-          updateGameStatus(computerGame);
-          setMessages(prev => [...prev, `Computer moved: ${move}`]);
-        }
-      });
-    }
     if (!move) return false;
 
+    // Update game state with player's move
     setGame(gameCopy);
     setGamePosition(gameCopy.fen());
     updateGameStatus(gameCopy);
@@ -192,22 +183,66 @@ const ChessGame: React.FC = () => {
       setMessages(prev => [...prev, `You moved: ${move.san}`]);
     } else {
       setMessages(prev => [...prev, `You moved: ${move.san}`]);
-      // 🎯 Make computer move (randomly)
-      setTimeout(() => {
-        const compGame = new Chess(gameCopy.fen());
-        const moves = compGame.moves();
-        if (moves.length > 0) {
-          const randomMove = moves[Math.floor(Math.random() * moves.length)];
-          compGame.move(randomMove);
-          setGame(compGame);
-          setGamePosition(compGame.fen());
-          updateGameStatus(compGame);
-          setMessages(prev => [...prev, `Computer moved: ${randomMove}`]);
-        }
-      }, 500);
+
+      // Handle computer move for vs computer mode
+      if (isVsComputer && !gameCopy.isGameOver()) {
+        // Run computer move after a short delay to simulate thinking
+        setTimeout(async () => {
+          try {
+            setPosition(gameCopy.fen());
+            const bestMove = await getBestMove(10);
+
+            if (bestMove && bestMove !== '(none)') {
+              const from = bestMove.substring(0, 2) as Square;
+              const to = bestMove.substring(2, 4) as Square;
+              const promotion = bestMove.length > 4 ? bestMove.substring(4, 5) : 'q';
+
+              const computerGame = new Chess(gameCopy.fen());
+              const computerMove = computerGame.move({
+                from,
+                to,
+                promotion: promotion as 'q' | 'r' | 'b' | 'n'
+              });
+
+              if (computerMove) {
+                setGame(computerGame);
+                setGamePosition(computerGame.fen());
+                updateGameStatus(computerGame);
+                setMessages(prev => [...prev, `Computer moved: ${computerMove.san}`]);
+              } else {
+                makeRandomComputerMove(gameCopy);
+              }
+            } else {
+              makeRandomComputerMove(gameCopy);
+            }
+          } catch (error) {
+            console.error('Engine error:', error);
+            setMessages(prev => [...prev, 'Engine error, using random move']);
+            makeRandomComputerMove(gameCopy);
+          }
+        }, 500);
+      }
     }
 
     return true;
+  };
+
+  // Helper function for random computer moves (fallback)
+  const makeRandomComputerMove = (currentGame: Chess) => {
+    setTimeout(() => {
+      const compGame = new Chess(currentGame.fen());
+      const moves = compGame.moves();
+      if (moves.length > 0) {
+        const randomMove = moves[Math.floor(Math.random() * moves.length)];
+        const moveResult = compGame.move(randomMove);
+        if (moveResult) {
+          setGame(compGame);
+          setGamePosition(compGame.fen());
+          updateGameStatus(compGame);
+          setMessages(prev => [...prev, `Computer moved: ${moveResult.san}`]);
+        }
+      }
+    }, 500);
   };
 
 
