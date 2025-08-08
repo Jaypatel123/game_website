@@ -3,6 +3,8 @@ import { Chessboard, PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chess
 import { Chess, Square } from 'chess.js';
 import { socket } from '../services/socket'; // Assuming socket.ts is in the same directory or a services folder
 import { useSearchParams, useNavigate } from 'react-router-dom'; // For room management
+import { initEngine, setPosition, getBestMove } from '../engine/stockFishEngine';
+
 
 
 const ChessGame: React.FC = () => {
@@ -23,6 +25,8 @@ const ChessGame: React.FC = () => {
   const isPlayerTurn = playerColor && game.turn() === (playerColor === 'white' ? 'w' : 'b');
   const [highlightedSquares, setHighlightedSquares] = useState<Square[]>([]);
   const [checkSquare, setCheckSquare] = useState<string | null>(null);
+  const isVsComputer = searchParams.get('vs') === 'computer';
+
 
   // This function ensures game state updates are immutable and handled correctly
   const updateGame = useCallback((modifyFn: (gameInstance: Chess) => void) => {
@@ -42,7 +46,9 @@ const ChessGame: React.FC = () => {
     }
 
     if (currentGame.isCheckmate()) {
-      setGameStatus(`Checkmate! ${currentGame.turn() === 'w' ? 'Black' : 'White'} wins!`);
+      const loser = currentGame.turn() === 'w' ? 'White' : 'Black';
+      const winner = loser === 'White' ? 'Black' : 'White';
+      setGameStatus(`Checkmate! ${winner} wins — ${loser} is checkmated.`);
     } else if (currentGame.isDraw()) {
       setGameStatus('Draw!');
     } else if (currentGame.isCheck()) {
@@ -51,6 +57,70 @@ const ChessGame: React.FC = () => {
       setGameStatus(`${currentGame.turn() === 'w' ? 'White' : 'Black'} to move`);
     }
   };
+  useEffect(() => {
+    if (isVsComputer) {
+      initEngine()
+        .then(() => {
+          setMessages(prev => [...prev, 'Chess engine initialized successfully']);
+        })
+        .catch((error) => {
+          console.error('Failed to initialize engine:', error);
+          setMessages(prev => [...prev, 'Failed to initialize chess engine, using random moves']);
+        });
+    }
+  }, [isVsComputer]);
+
+  useEffect(() => {
+  if (
+    isVsComputer &&
+    playerColor === 'black' &&
+    game.turn() === 'w' &&
+    !game.isGameOver()
+  ) {
+    // Computer (white) should move first
+    setMessages(prev => [...prev, 'Computer is making the first move...']);
+
+    setTimeout(async () => {
+      try {
+        setPosition(game.fen());
+        const bestMove = await getBestMove(10);
+
+        if (bestMove && bestMove !== '(none)') {
+          const from = bestMove.substring(0, 2) as Square;
+          const to = bestMove.substring(2, 4) as Square;
+          const promotion = bestMove.length > 4 ? bestMove.substring(4, 5) : 'q';
+
+          const computerGame = new Chess(game.fen());
+          const move = computerGame.move({
+            from,
+            to,
+            promotion: promotion as 'q' | 'r' | 'b' | 'n',
+          });
+
+          if (move) {
+            setGame(computerGame);
+            setGamePosition(computerGame.fen());
+            updateGameStatus(computerGame);
+            setMessages(prev => [...prev, `Computer moved: ${move.san}`]);
+          }
+        }
+      } catch (err) {
+        console.error('Computer move error:', err);
+        setMessages(prev => [...prev, 'Computer failed to move first']);
+      }
+    }, 500); // Short delay to simulate "thinking"
+  }
+}, [isVsComputer, playerColor, game]); // Only runs once on initial load
+
+
+  useEffect(() => {
+  if (isVsComputer) {
+    setPlayerColor('white');
+    setBoardOrientation('white');
+  }
+}, [isVsComputer]);
+
+
   // Effect for Socket.IO event listeners
   useEffect(() => {
     if (!roomId) {
@@ -147,6 +217,7 @@ const ChessGame: React.FC = () => {
     }
 
     const gameCopy = new Chess(game.fen());
+
     const move = gameCopy.move({
       from: sourceSquare as Square,
       to: targetSquare as Square,
@@ -155,6 +226,7 @@ const ChessGame: React.FC = () => {
 
     if (!move) return false;
 
+    // Update game state with player's move
     setGame(gameCopy);
     setGamePosition(gameCopy.fen());
     updateGameStatus(gameCopy);
@@ -165,22 +237,66 @@ const ChessGame: React.FC = () => {
       setMessages(prev => [...prev, `You moved: ${move.san}`]);
     } else {
       setMessages(prev => [...prev, `You moved: ${move.san}`]);
-      // 🎯 Make computer move (randomly)
-      setTimeout(() => {
-        const compGame = new Chess(gameCopy.fen());
-        const moves = compGame.moves();
-        if (moves.length > 0) {
-          const randomMove = moves[Math.floor(Math.random() * moves.length)];
-          compGame.move(randomMove);
-          setGame(compGame);
-          setGamePosition(compGame.fen());
-          updateGameStatus(compGame);
-          setMessages(prev => [...prev, `Computer moved: ${randomMove}`]);
-        }
-      }, 500);
+
+      // Handle computer move for vs computer mode
+      if (isVsComputer && !gameCopy.isGameOver()) {
+        // Run computer move after a short delay to simulate thinking
+        setTimeout(async () => {
+          try {
+            setPosition(gameCopy.fen());
+            const bestMove = await getBestMove(10);
+
+            if (bestMove && bestMove !== '(none)') {
+              const from = bestMove.substring(0, 2) as Square;
+              const to = bestMove.substring(2, 4) as Square;
+              const promotion = bestMove.length > 4 ? bestMove.substring(4, 5) : 'q';
+
+              const computerGame = new Chess(gameCopy.fen());
+              const computerMove = computerGame.move({
+                from,
+                to,
+                promotion: promotion as 'q' | 'r' | 'b' | 'n'
+              });
+
+              if (computerMove) {
+                setGame(computerGame);
+                setGamePosition(computerGame.fen());
+                updateGameStatus(computerGame);
+                setMessages(prev => [...prev, `Computer moved: ${computerMove.san}`]);
+              } else {
+                makeRandomComputerMove(gameCopy);
+              }
+            } else {
+              makeRandomComputerMove(gameCopy);
+            }
+          } catch (error) {
+            console.error('Engine error:', error);
+            setMessages(prev => [...prev, 'Engine error, using random move']);
+            makeRandomComputerMove(gameCopy);
+          }
+        }, 500);
+      }
     }
 
     return true;
+  };
+
+  // Helper function for random computer moves (fallback)
+  const makeRandomComputerMove = (currentGame: Chess) => {
+    setTimeout(() => {
+      const compGame = new Chess(currentGame.fen());
+      const moves = compGame.moves();
+      if (moves.length > 0) {
+        const randomMove = moves[Math.floor(Math.random() * moves.length)];
+        const moveResult = compGame.move(randomMove);
+        if (moveResult) {
+          setGame(compGame);
+          setGamePosition(compGame.fen());
+          updateGameStatus(compGame);
+          setMessages(prev => [...prev, `Computer moved: ${moveResult.san}`]);
+        }
+      }
+    }, 500);
   };
 
 
@@ -347,14 +463,16 @@ const ChessGame: React.FC = () => {
             {/* Play with Computer */}
             <button
               onClick={() => {
-                setShowLobby(false);
+                const randomId = `cpu-${Math.floor(1000 + Math.random() * 9000)}`;
                 setPlayerColor('white'); // Player always white against computer
+                navigate(`/chess?room=${randomId}&vs=computer`);
                 setBoardOrientation('white');
+                setShowLobby(false);
                 setMessages(prev => [...prev, 'Playing against computer (local mode).']);
               }}
-              className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 transition mb-4"
+              className="w-full bg-green-600 text-white py-2 mt-2 rounded hover:bg-green-700 transition"
             >
-              Play with Computer
+              Play vs Computer
             </button>
 
             {/* OR Join/Create Room */}
