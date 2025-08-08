@@ -46,7 +46,9 @@ const ChessGame: React.FC = () => {
     }
 
     if (currentGame.isCheckmate()) {
-      setGameStatus(`Checkmate! ${currentGame.turn() === 'w' ? 'Black' : 'White'} wins!`);
+      const loser = currentGame.turn() === 'w' ? 'White' : 'Black';
+      const winner = loser === 'White' ? 'Black' : 'White';
+      setGameStatus(`Checkmate! ${winner} wins — ${loser} is checkmated.`);
     } else if (currentGame.isDraw()) {
       setGameStatus('Draw!');
     } else if (currentGame.isCheck()) {
@@ -56,17 +58,69 @@ const ChessGame: React.FC = () => {
     }
   };
   useEffect(() => {
+    if (isVsComputer) {
+      initEngine()
+        .then(() => {
+          setMessages(prev => [...prev, 'Chess engine initialized successfully']);
+        })
+        .catch((error) => {
+          console.error('Failed to initialize engine:', error);
+          setMessages(prev => [...prev, 'Failed to initialize chess engine, using random moves']);
+        });
+    }
+  }, [isVsComputer]);
+
+  useEffect(() => {
+  if (
+    isVsComputer &&
+    playerColor === 'black' &&
+    game.turn() === 'w' &&
+    !game.isGameOver()
+  ) {
+    // Computer (white) should move first
+    setMessages(prev => [...prev, 'Computer is making the first move...']);
+
+    setTimeout(async () => {
+      try {
+        setPosition(game.fen());
+        const bestMove = await getBestMove(10);
+
+        if (bestMove && bestMove !== '(none)') {
+          const from = bestMove.substring(0, 2) as Square;
+          const to = bestMove.substring(2, 4) as Square;
+          const promotion = bestMove.length > 4 ? bestMove.substring(4, 5) : 'q';
+
+          const computerGame = new Chess(game.fen());
+          const move = computerGame.move({
+            from,
+            to,
+            promotion: promotion as 'q' | 'r' | 'b' | 'n',
+          });
+
+          if (move) {
+            setGame(computerGame);
+            setGamePosition(computerGame.fen());
+            updateGameStatus(computerGame);
+            setMessages(prev => [...prev, `Computer moved: ${move.san}`]);
+          }
+        }
+      } catch (err) {
+        console.error('Computer move error:', err);
+        setMessages(prev => [...prev, 'Computer failed to move first']);
+      }
+    }, 500); // Short delay to simulate "thinking"
+  }
+}, [isVsComputer, playerColor, game]); // Only runs once on initial load
+
+
+  useEffect(() => {
   if (isVsComputer) {
-    initEngine()
-      .then(() => {
-        setMessages(prev => [...prev, 'Chess engine initialized successfully']);
-      })
-      .catch((error) => {
-        console.error('Failed to initialize engine:', error);
-        setMessages(prev => [...prev, 'Failed to initialize chess engine, using random moves']);
-      });
+    setPlayerColor('white');
+    setBoardOrientation('white');
   }
 }, [isVsComputer]);
+
+
   // Effect for Socket.IO event listeners
   useEffect(() => {
     if (!roomId) {

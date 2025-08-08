@@ -4,26 +4,35 @@ let engine: Worker | null = null;
 export const initEngine = (): Promise<void> => {
   return new Promise((resolve, reject) => {
     try {
-      // Use local Stockfish file (make sure you've downloaded it to public/workers/stockfish.js)
       engine = new Worker('/workers/stockfish.js');
-      
+
+      const timeout = setTimeout(() => {
+        console.warn('Stockfish engine initialization timed out');
+        reject(new Error('Engine timeout'));
+      }, 5000); // 5 seconds max
+
       engine.onmessage = (event) => {
         const message = event.data;
+        console.log('Engine init message:', message); // Should include "Stockfish"
+
         if (typeof message === 'string' && message.includes('Stockfish')) {
+          clearTimeout(timeout);
           resolve();
         }
       };
 
       engine.onerror = (error) => {
-        console.error('Worker error:', error);
+        console.error('Stockfish worker error:', error);
+        clearTimeout(timeout);
         reject(error);
       };
-
     } catch (error) {
+      console.error('Engine init failed:', error);
       reject(error);
     }
   });
 };
+
 
 export const setPosition = (fen: string) => {
   if (!engine) throw new Error('Engine not initialized');
